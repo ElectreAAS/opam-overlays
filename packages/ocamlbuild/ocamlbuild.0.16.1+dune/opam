@@ -26,7 +26,7 @@ build: [
     "all"
     "OCAMLBUILD_PREFIX=%{prefix}%"
     "OCAMLBUILD_BINDIR=%{bin}%"
-    "OCAMLBUILD_LIBDIR=%{lib}%"
+    "OCAMLBUILD_LIBDIR=.."
     "OCAMLBUILD_MANDIR=%{man}%"
     "OCAML_NATIVE=%{ocaml:native}%"
     "OCAML_NATIVE_TOOLS=%{ocaml:native}%"
@@ -35,7 +35,7 @@ build: [
 ]
 dev-repo: "git+https://github.com/ocaml/ocamlbuild.git"
 url {
-  src: "https://github.com/gridbugs/ocamlbuild/archive/refs/tags/0.16.1+dune.tar.gz"
+  src: "https://github.com/ElectreAAS/ocamlbuild/archive/refs/tags/0.16.1+dune.tar.gz"
   checksum:
-    "sha512=9bf33e2e3cd70495c6ff5987f7e8c1c2fb3dccb02da490140726fed3b374489cb93d500f57bea32a1a71da1c9d3dd207e476109d1aaa759f54c3ef07d5b7ccd8"
+    "sha512=237406219e0c271d5acc6705a85a864983d461e3bd1e1932c5e2a5c713b8765c54de7bf51474d3190d3bdf3ca7f59b9dadf6170c143ec82ad7f14d98bdeafa8b"
 }
