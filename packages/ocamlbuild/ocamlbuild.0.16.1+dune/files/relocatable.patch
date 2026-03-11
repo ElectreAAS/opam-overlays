@@ -1,0 +1,256 @@
+diff --git a/Makefile b/Makefile
+index 934361a..2904332 100644
+--- a/Makefile
++++ b/Makefile
+@@ -31,7 +31,7 @@ endif
+ 
+ CP        ?= cp
+ OCB_COMPFLAGS ?= -w @14@29 -w +L -w +R -w +Z -I src -I plugin-lib -I bin -I +unix -safe-string -bin-annot -strict-sequence
+-OCB_LINKFLAGS ?= -I +unix -I src
++OCB_LINKFLAGS ?= -I +unix -I src $(OCB_EXTRA_LINKFLAGS)
+ 
+ PACK_CMO= $(addprefix src/,\
+   const.cmo \
+@@ -179,7 +179,7 @@ configure:
+ 	$(MAKE) -f configure.make all
+ 
+ # proxy rule for rebuilding configuration files directly from the main Makefile
+-Makefile.config src/ocamlbuild_config.ml:
++Makefile.config src/ocamlbuild_config.ml: src/ocamlbuild_config.ml.in
+ 	$(MAKE) -f configure.make $@
+ 
+ clean::
+diff --git a/configure.make b/configure.make
+index 1e5eeec..7e31c12 100644
+--- a/configure.make
++++ b/configure.make
+@@ -9,17 +9,17 @@
+ OCAML_LIBDIR = $(shell ocamlc -where)
+ include $(OCAML_LIBDIR)/Makefile.config
+ 
+-OCAML_PREFIX = $(PREFIX)
++OCAML_PREFIX = $(prefix)
+ OCAML_MANDIR = $(MANDIR)
+ 
+ # If you want to affect ocamlbuild's configuration by passing variable
+ # assignments to this Makefile, you probably want to define those
+ # OCAMLBUILD_* variables.
+ 
+-OCAMLBUILD_PREFIX ?= $(PREFIX)
++OCAMLBUILD_PREFIX ?= $(OCAML_PREFIX)
+ OCAMLBUILD_BINDIR ?= \
+   $(or $(shell opam config var bin 2>/dev/null),\
+-       $(PREFIX)/bin)
++       $(OCAML_PREFIX)/bin)
+ OCAMLBUILD_LIBDIR ?= \
+   $(or $(shell opam config var lib 2>/dev/null),\
+        $(shell ocamlfind printconf destdir 2>/dev/null),\
+@@ -28,6 +28,35 @@ OCAMLBUILD_MANDIR ?= \
+   $(or $(shell opam config var man 2>/dev/null),\
+        $(OCAML_MANDIR))
+ 
++# OCAMLBUILD_RELOCATABLE is true if:
++#   1. The compiler is Relocatable OCaml
++#   2. ocamlbuild will be installed in the same directory as the compiler
++#   3. OCAMLBUILD_LIBDIR is an explicit relative path (i.e. begins ./ or ../)
++# OCAMLBUILD_RELOCATABLE is empty if any of these things are not true.
++OCAMLBUILD_LIBDIR_RELATIVE = $(filter . .. ./% ../%, $(OCAMLBUILD_LIBDIR))
++OCAML_RELOCATABLE = \
++  $(shell ocamlc -config-var standard_library_relative 2>/dev/null)
++OCAMLC_BIN_DIR = $(abspath $(dir $(shell command -v ocamlc)))
++# On Windows, OCAMLC_BIN_DIR will be a Cygwin-style path but OCAMLBUILD_BINDIR
++# is a native path. The requirement is that OCAMLBUILD_BINDIR needs to be the
++# same as the compiler - that means it _must_ already exist, so it gets
++# canonicalised using "poor man's realpath" by doing cd+pwd.
++OCAMLBUILD_BINDIR_RESOLVED = $(shell cd '$(OCAMLBUILD_BINDIR)' 2>/dev/null ; pwd)
++OCAMLBUILD_RELOCATABLE := \
++  $(if $(OCAMLBUILD_LIBDIR_RELATIVE),$\
++    $(if $(OCAML_RELOCATABLE),$\
++      $(if $(filter $(abspath $(OCAMLBUILD_BINDIR_RESOLVED)),$(OCAMLC_BIN_DIR)),true)))
++
++# If OCAMLBUILD_LIBDIR is an explicit relative path, but Relocatable ocamlbuild
++# cannot be built (see above), then OCAMLBUILD_LIBDIR_ACTUAL is the absolute
++# path calculated by concatenating OCAML_LIBDIR and OCAMLBUILD_LIBDIR. Otherwise
++# it is just OCAMLBUILD_LIBDIR.
++OCAMLBUILD_LIBDIR_ACTUAL := \
++  $(if $(OCAMLBUILD_RELOCATABLE),$(OCAMLBUILD_LIBDIR),$\
++    $(if $(OCAMLBUILD_LIBDIR_RELATIVE),$\
++      $(if $(filter .., $(OCAMLBUILD_LIBDIR)),$(dir $(OCAML_LIBDIR)),$\
++        $(abspath $(OCAML_LIBDIR)/$(OCAMLBUILD_LIBDIR)),$(OCAMLBUILD_LIBDIR))))
++
+ # It is important to distinguish OCAML_LIBDIR, which points to the
+ # directory of the ocaml compiler distribution, and OCAMLBUILD_LIBDIR,
+ # which should be the general library directory of OCaml projects on
+@@ -76,20 +105,45 @@ Makefile.config:
+ 	echo "OCAML_NATIVE_TOOLS=$(OCAML_NATIVE_TOOLS)"; \
+ 	echo "NATDYNLINK=$(NATDYNLINK)"; \
+ 	echo "SUPPORT_SHARED_LIBRARIES=$(SUPPORTS_SHARED_LIBRARIES)"; \
++	echo "OCB_EXTRA_LINKFLAGS=$(OCB_EXTRA_LINKFLAGS)"; \
+ 	echo ;\
+ 	echo "PREFIX=$(OCAMLBUILD_PREFIX)"; \
+ 	echo "BINDIR=$(OCAMLBUILD_BINDIR)"; \
+-	echo "LIBDIR=$(OCAMLBUILD_LIBDIR)"; \
++	echo "LIBDIR=$(OCAMLBUILD_LIBDIR_ACTUAL)"; \
+ 	echo "MANDIR=$(OCAMLBUILD_MANDIR)"; \
+ 	) > $@
+ 
+-src/ocamlbuild_config.ml:
++ifeq ($(OCAMLBUILD_RELOCATABLE), true)
++
++# For Relocatable ocamlbuild, just record the relative path specified for
++# OCAMLBUILD_LIBDIR and the current directory name (".") for BINDIR and the
++# extra code apppended from src/ocamlbuild_config.ml.in will process the correct
++# values at runtime.
++src/ocamlbuild_config.ml: BINDIR = .
++src/ocamlbuild_config.ml: OCAML_LIBDIR =
++src/ocamlbuild_config.ml: LIBDIR_ABS =
++
++OCB_EXTRA_LINKFLAGS = \
++  -set-runtime-default standard_library_default=$(OCAML_RELOCATABLE)
++
++else
++
++# For normal ocamlbuild, record the configured values.
++src/ocamlbuild_config.ml: BINDIR := $(OCAMLBUILD_BINDIR)
++src/ocamlbuild_config.ml: OCAML_LIBDIR := $(abspath $(OCAML_LIBDIR))
++src/ocamlbuild_config.ml: LIBDIR_ABS := $(abspath $(OCAMLBUILD_LIBDIR_ACTUAL))
++
++OCB_EXTRA_LINKFLAGS =
++
++endif
++
++src/ocamlbuild_config.ml: src/ocamlbuild_config.ml.in
+ 	(echo "(* This file was generated from ../configure.make *)"; \
+ 	echo ;\
+-	echo 'let bindir = {|$(OCAMLBUILD_BINDIR)|}'; \
+-	echo 'let libdir = {|$(OCAMLBUILD_LIBDIR)|}'; \
+-	echo 'let ocaml_libdir = {|$(abspath $(OCAML_LIBDIR))|}'; \
+-	echo 'let libdir_abs = {|$(abspath $(OCAMLBUILD_LIBDIR))|}'; \
++	echo 'let bindir = {|$(BINDIR)|}'; \
++	echo 'let libdir = {|$(OCAMLBUILD_LIBDIR_ACTUAL)|}'; \
++	echo 'let ocaml_libdir = {|$(OCAML_LIBDIR)|}'; \
++	echo 'let libdir_abs = {|$(LIBDIR_ABS)|}'; \
+ 	echo 'let ocaml_native = $(OCAML_NATIVE)'; \
+ 	echo 'let ocaml_native_tools = $(OCAML_NATIVE_TOOLS)'; \
+ 	echo 'let supports_shared_libraries = $(SUPPORTS_SHARED_LIBRARIES)';\
+@@ -99,4 +153,5 @@ src/ocamlbuild_config.ml:
+ 	echo 'let ext_dll = "$(EXT_DLL)"'; \
+ 	echo 'let exe = "$(EXE)"'; \
+ 	echo 'let version = "$(shell ocaml scripts/cat.ml VERSION)"'; \
++	$(if $(OCAMLBUILD_RELOCATABLE),cat src/ocamlbuild_config.ml.in;) \
+ 	) > $@
+diff --git a/examples/07-dependent-projects/libdemo b/examples/07-dependent-projects/libdemo
+deleted file mode 120000
+index ad0a385..0000000
+--- a/examples/07-dependent-projects/libdemo
++++ /dev/null
+@@ -1 +0,0 @@
+-../04-library/libdemo
+\ No newline at end of file
+diff --git a/examples/07-dependent-projects/libdemo/hello.ml b/examples/07-dependent-projects/libdemo/hello.ml
+new file mode 100644
+index 0000000..aa3c439
+--- /dev/null
++++ b/examples/07-dependent-projects/libdemo/hello.ml
+@@ -0,0 +1,4 @@
++
++let hello = "hello"
++
++
+diff --git a/examples/07-dependent-projects/libdemo/hello.mli b/examples/07-dependent-projects/libdemo/hello.mli
+new file mode 100644
+index 0000000..2f327fd
+--- /dev/null
++++ b/examples/07-dependent-projects/libdemo/hello.mli
+@@ -0,0 +1,2 @@
++
++val hello: string
+diff --git a/examples/07-dependent-projects/libdemo/libdemo.mllib b/examples/07-dependent-projects/libdemo/libdemo.mllib
+new file mode 100644
+index 0000000..2bb9220
+--- /dev/null
++++ b/examples/07-dependent-projects/libdemo/libdemo.mllib
+@@ -0,0 +1,5 @@
++
++Hello
++Util
++
++
+diff --git a/examples/07-dependent-projects/libdemo/util.ml b/examples/07-dependent-projects/libdemo/util.ml
+new file mode 100644
+index 0000000..206518a
+--- /dev/null
++++ b/examples/07-dependent-projects/libdemo/util.ml
+@@ -0,0 +1,8 @@
++
++let rec join = function
++    | []      -> ""
++    | [x]     -> x
++    | [x;y]   -> x ^ " and " ^ y
++    | x::xs   -> x ^ ", "    ^ join xs
++
++
+diff --git a/examples/07-dependent-projects/libdemo/util.mli b/examples/07-dependent-projects/libdemo/util.mli
+new file mode 100644
+index 0000000..582eec7
+--- /dev/null
++++ b/examples/07-dependent-projects/libdemo/util.mli
+@@ -0,0 +1,4 @@
++
++(** join strings together using command and "and" for the last element *)
++val join: string list -> string
++
+diff --git a/ocamlbuild.opam b/ocamlbuild.opam
+index 894fcda..dad4473 100644
+--- a/ocamlbuild.opam
++++ b/ocamlbuild.opam
+@@ -17,7 +17,7 @@ build: [
+     "all"
+     "OCAMLBUILD_PREFIX=%{prefix}%"
+     "OCAMLBUILD_BINDIR=%{bin}%"
+-    "OCAMLBUILD_LIBDIR=%{lib}%"
++    "OCAMLBUILD_LIBDIR=.."
+     "OCAMLBUILD_MANDIR=%{man}%"
+     "OCAML_NATIVE=%{ocaml:native}%"
+     "OCAML_NATIVE_TOOLS=%{ocaml:native}%"
+diff --git a/src/ocamlbuild_config.ml.in b/src/ocamlbuild_config.ml.in
+new file mode 100644
+index 0000000..afcccc6
+--- /dev/null
++++ b/src/ocamlbuild_config.ml.in
+@@ -0,0 +1,35 @@
++#2 "ocamlbuild_config.ml.in"
++(***********************************************************************)
++(*                                                                     *)
++(*                             ocamlbuild                              *)
++(*                                                                     *)
++(*                       David Allsopp, Tarides                        *)
++(*                                                                     *)
++(*  Copyright 2025 David Allsopp Ltd.  All rights reserved.  This      *)
++(*  file is distributed under the terms of the GNU Library General     *)
++(*  Public License, with the special exception on linking described    *)
++(*  in file ../LICENSE.                                                *)
++(*                                                                     *)
++(***********************************************************************)
++
++(* Compute the effective default for the Standard Library *)
++let ocaml_libdir, bindir =
++  let module Defs = struct
++    external default : unit -> string = "%standard_library_default"
++    external get : string -> string * string option = "caml_sys_get_stdlib_dirs"
++  end in
++  match Defs.get (Defs.default ()) with
++  | ocaml_libdir, Some bindir ->
++      ocaml_libdir, bindir
++  | ocaml_libdir, None ->
++      (* This code should in theory only be being executed on a relocatable
++         runtime *)
++      ocaml_libdir, Filename.dirname Sys.executable_name
++
++let libdir =
++  if libdir = ".." then
++    (* Cheeky special case, as it happens to match opam *)
++    Filename.dirname ocaml_libdir
++  else
++    (* General case *)
++    Filename.concat ocaml_libdir libdir

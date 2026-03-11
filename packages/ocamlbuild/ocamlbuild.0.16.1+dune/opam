@@ -34,8 +34,9 @@ build: [
   [make "check-if-preinstalled" "all" "opam-install"]
 ]
 dev-repo: "git+https://github.com/ocaml/ocamlbuild.git"
-url {
-  src: "https://github.com/ElectreAAS/ocamlbuild/archive/refs/tags/0.16.1+dune.tar.gz"
-  checksum:
-    "sha512=237406219e0c271d5acc6705a85a864983d461e3bd1e1932c5e2a5c713b8765c54de7bf51474d3190d3bdf3ca7f59b9dadf6170c143ec82ad7f14d98bdeafa8b"
-}
+patches: ["relocatable.patch"]
+extra-files: [
+  [
+    "relocatable.patch" "sha256=f3981cbf4e6b4ca8bb1616f451805942461f53168ed987bfd87dcf7e9b8bbc33"
+  ]
+]
